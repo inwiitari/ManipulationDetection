@@ -1,0 +1,380 @@
+{% extends "base.html.j2" %}
+
+{% block styles %}
+<style>
+  html, body {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+  }
+
+  @media screen and (min-width: 460px) {
+    #input-text {
+      height: calc(100vh - 166px);
+      overflow-y: scroll;
+    }
+  }
+
+  @media screen and (max-width: 460px) {
+    #input-text {
+      height: calc(100vh - 214px);
+      overflow-y: scroll;
+    }
+  }
+
+  #progress {
+    background-color: white;
+  }
+
+  #form-group {
+    position: relative;
+  }
+
+  .label {
+    position: absolute;
+    z-index: 1;
+  }
+
+  .highlight {
+    cursor: pointer;
+  }
+
+  .label-text {
+    border: 3px solid;
+    border-radius: 5px;
+    padding: 1px;
+  }
+
+  .info-box {
+    position: absolute;
+    z-index: 2;
+    border: 1px solid;
+    border-radius: 5px;
+    padding: 10px;
+    width: 200px;
+  }
+</style>
+{% endblock %}
+
+{% block title %}Manipulation Detection{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="text-center">Manipulation Detection</h1>
+    <form id="input-form">
+        <div class="form-group" id="form-group">
+            <label for="input-text">Input Text:</label>
+            <textarea class="form-control" id="input-text" rows="10"></textarea>
+            <div id="input-text-div" style="display: none;"></div>
+        </div>
+        <div class="text-center p-3" id="button-area">
+            <button type="submit" id="analyze-button" class="btn btn-primary">Analyze</button>
+        </div>
+    </form>
+    <div id="progress" class="fixed-bottom p-3" style="display: none;">
+        <div class="progress">
+            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0;"></div>
+        </div>
+    </div>
+    <div id="result" class="mt-4"></div>
+    <div id="finished" class="mt-3 p-3 text-center" style="display: none;">
+        <div>
+            <button id="new-analysis" class="btn btn-primary">New Analysis</button>
+            <button id="download" class="btn btn-secondary">Save</button>
+        </div>
+    </div>
+
+    <div class="modal fade" tabindex="-1" id="error-modal">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-body alert alert-danger" id="error" style="margin-bottom: 0px;"></div>
+            </div>
+        </div>
+    </div>
+    
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const labelColors = [
+        '#FFE0E0', '#FFE0F0', '#FFE0FF', '#FFF0E0', '#FFF0F0',
+        '#FFF0FF', '#FFFFF0', '#F0FFE0', '#F0FFF0', '#F0FFFF',
+        '#F0E0E0', '#F0E0FF', '#E0E0F0', '#F0F0E0', '#E0F0F0',
+        '#F0E0F0', '#F0F0FF', '#E0FFFF', '#F0FFFF', '#FFFFE0',
+        '#C3EEDE', '#D3D8EE', '#E8F3D6', '#DED2E7', '#D1E1E8',
+        '#F8EAE6', '#E7E7E7', '#F3EBF2', '#E6F3E6', '#E7F3FF',
+        '#FFD9DD', '#FFEEDB', '#FFFFDB', '#DBFFE3', '#DBF0FF',
+        '#EFDCF1', '#C9BDD6', '#E9C9DE', '#FEE4EC', '#FFEEE8'
+    ];
+
+    function componentToHex(c) {
+        var hex = c.toString(16);
+        return hex.length == 1 ? "0" + hex : hex;
+    }
+
+    function rgbToHex(r, g, b) {
+        return "#" + componentToHex(r) + componentToHex(g) + componentToHex(b);
+    }
+
+    function hexToRgb(hex) {
+        var result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? [
+            parseInt(result[1], 16),
+            parseInt(result[2], 16),
+            parseInt(result[3], 16)
+        ] : null;
+    }
+
+    function mixColors(color1, color2) {
+        if (!color1) return color2;
+        if (!color2) return color1;
+        const [r1, g1, b1] = hexToRgb(color1) || color1;
+        const [r2, g2, b2] = hexToRgb(color2) || color2;
+        const r = Math.floor((r1 + r2) / 2);
+        const g = Math.floor((g1 + g2) / 2);
+        const b = Math.floor((b1 + b2) / 2);
+        return rgbToHex(r, g, b);
+    }
+
+    function darkenColor(color, amount) {
+        const [r, g, b] = hexToRgb(color) || color;
+        const rDark = Math.max(0, Math.floor(r * (1 - amount)));
+        const gDark = Math.max(0, Math.floor(g * (1 - amount)));
+        const bDark = Math.max(0, Math.floor(b * (1 - amount)));
+        return rgbToHex(rDark, gDark, bDark);
+    }
+
+    function toSentenceCase(text) {
+        return text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
+    }
+
+    function handleText(text, div) {
+        const lines = text.split('\n');
+        lines.forEach((line, lineIndex) => {
+            const lineNode = document.createTextNode(line);
+            div.appendChild(lineNode);
+            if (lineIndex < lines.length - 1) {
+                div.appendChild(document.createElement('br'));
+            }
+        });
+    }
+
+    const labelColorMap = {};
+    let colorIndex = 0;
+
+    function getLabelColor(label) {
+        if (!labelColorMap[label]) {
+            labelColorMap[label] = labelColors[colorIndex % labelColors.length];
+            colorIndex++;
+        }
+        return labelColorMap[label];
+    }
+
+    function isEmpty(value){
+        return (value == null || value.length === 0);
+    }
+
+    function showError(message, stopProgress = false) {
+        const error = $('#error');
+        error.text(message);
+        const errorModal = new bootstrap.Modal(document.getElementById('error-modal'), { backdrop: false, keyboard: false });
+        errorModal.show();
+
+        setTimeout(() => {
+            errorModal.hide();
+        }, 4000);
+
+        if (stopProgress) {
+            const progressBar = document.querySelector('.progress-bar');
+            progressBar.classList.remove('progress-bar-animated');
+            progressBar.classList.add('bg-danger');
+            $('#button-area').attr('style', 'padding-bottom: inherit');
+            $('#button-area').hide();
+            $('#finished').attr('style', 'padding-bottom: 54px !important');
+            $('#new-analysis').show();
+        }
+    }
+
+    function convertTextareaToDiv(chunks) {
+        const inputText = $('#input-text');
+        const inputTextDiv = $('#input-text-div');
+
+        chunks.forEach(([text, delimiter], index) => {
+            const elementType = delimiter === '\n'
+                ? 'div'
+                : 'span';
+            const lineDiv = document.createElement(elementType);
+            handleText(text[0], lineDiv);
+            lineDiv.style.color = 'gray';
+            inputTextDiv.append(lineDiv);
+        });
+
+        inputText.hide();
+        inputTextDiv.show();
+    }
+
+    function displayAnalyzedText(chunks) {
+        const inputTextDiv = $('#input-text-div')[0];
+        const inputTextDivChildren = inputTextDiv.childNodes;
+        chunks.forEach(([paragraphs, delimiter], index) => {
+            const container = inputTextDivChildren[completedChunks];
+            while (container.firstChild) {
+                container.removeChild(container.firstChild);
+            };
+            paragraphs.forEach(spans => {
+                spans.forEach(([text, labels]) => {
+                    const span = document.createElement("span");
+                    handleText(text, span);
+                    if (!isEmpty(labels)) {
+                        span.className = "highlight";
+                        let backgroundColor = "";
+                        const tooltip = document.createElement("div");
+                        tooltip.className = "label";
+                        tooltip.style.display = "none";
+                        labels.forEach(([label]) => {
+                            const color = getLabelColor(label);
+                            backgroundColor = mixColors(backgroundColor, color);
+                            const labelText = document.createElement("div");
+                            labelText.className = "label-text";
+                            labelText.textContent = toSentenceCase(label);
+                            labelText.style.backgroundColor = color;
+                            labelText.style.borderColor = darkenColor(color, 0.3);
+                            tooltip.appendChild(labelText);
+                        });
+                        span.style.backgroundColor = backgroundColor;
+                        span.appendChild(tooltip);
+                    }
+                    container.appendChild(span);
+                });
+                const delimElement = delimiter === '\n'
+                    ? document.createElement("br")
+                    : document.createTextNode(" ");
+                container.appendChild(delimElement);
+            });
+            container.style.color = 'black';
+        });
+    }
+
+    let totalChunks = 0;
+    let completedChunks = 0;
+
+    async function fetchNextChunk() {
+        try {
+            const response = await fetch("/get_chunk");
+            const data = await response.json();
+            if (data.end) {
+                $('#button-area').attr('style', 'padding-bottom: inherit');
+                $('#button-area').hide();
+                $('#progress').hide("fast");
+                $('#analyze-button').hide("fast");
+                $('#finished').show("slow");
+            } else {
+                displayAnalyzedText([[data.chunk, data.delimiter]]);
+                const progressBar = document.querySelector(".progress-bar");
+                completedChunks++;
+                const progressPercentage = (completedChunks / totalChunks) * 100;
+                progressBar.style.width = `${progressPercentage}%`;
+                progressBar.setAttribute("aria-valuenow", progressPercentage);
+                progressBar.innerText = parseInt(progressPercentage) + '%';
+                fetchNextChunk();
+            }
+        } catch (error) {
+            showError('We ran into a problem while processing the data', true);
+        }
+    }
+
+    $('#input-form')[0].addEventListener("submit", async (event) => {
+        event.preventDefault();
+        totalChunks = 0;
+        completedChunks = 0;
+        const progressBar = document.querySelector(".progress-bar");
+        const progressPercentage = 0;
+        progressBar.style.width = `${progressPercentage}%`;
+        progressBar.setAttribute("aria-valuenow", progressPercentage);
+        const inputText = $('#input-text')[0].value;
+        if (!inputText.trim()) {
+            showError('We cannot process empty text');
+            return;
+        }
+        const labels = JSON.stringify([]);
+
+        const formData = new FormData();
+        formData.append("input_text", inputText);
+        formData.append("labels", labels);
+
+        $('#analyze-button')[0].disabled = true;
+        $('#analyze-button')[0].innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>\nAnalyzing...';
+        $('#button-area').attr('style', 'padding-bottom: 54px !important');
+        $('#progress').show("fast");
+
+        const response = await fetch("/analyze", { method: "POST", body: formData });
+        const data = await response.json();
+        if (!data.success) {
+            showError('We could not split your text — check the contents');
+            $('#analyze-button')[0].disabled = false;
+            $('#analyze-button')[0].innerHTML = 'Analyze';
+            $('#progress').hide("fast");
+            return;
+        }
+        totalChunks = data.total_chunks;
+
+        const chunks = data.chunks.map(([text, delimiter]) => [[text, []], delimiter]);
+        convertTextareaToDiv(chunks);
+        $('body').css('overflow', 'auto');
+
+        fetchNextChunk();
+    });
+
+    $('#new-analysis')[0].addEventListener("click", () => {
+        $('#finished').attr('style', 'padding-bottom: auto');
+        $('#button-area').show();
+        $('#input-text-div').empty();
+        $('#input-text').show("slow");
+        $('body').css('overflow', 'hidden');
+        $('#finished').hide();
+        $('#form-group').show("slow");
+        $('#analyze-button').show("slow");
+        $('#analyze-button')[0].disabled = false;
+        $('#analyze-button')[0].innerHTML = 'Analyze';
+    });
+
+    $('#download')[0].addEventListener("click", () => {
+        window.location.href = "/download";
+    });
+
+    document.addEventListener("mouseover", (e) => {
+        if (e.target.matches(".highlight")) {
+            e.target.querySelector('.label').style.display = "block";
+        }
+    });
+
+    document.addEventListener("mouseout", (e) => {
+        if (e.target.matches(".highlight")) {
+            e.target.querySelector('.label').style.display = "none";
+        }
+    });
+
+    /*
+    document.addEventListener("click", (e) => {
+        const infoBox = document.querySelector(".info-box");
+        if (infoBox) {
+            infoBox.remove();
+        }
+
+        if (e.target.matches(".label > div")) {
+            const infoBox = document.createElement("div");
+            infoBox.className = "info-box";
+            infoBox.innerHTML = `<strong>${e.target.textContent}</strong><br><br>Example info for "${e.target.textContent}" label.`;
+            infoBox.style.backgroundColor = e.target.style.backgroundColor;
+            infoBox.style.borderColor = e.target.style.borderColor;
+            e.target.closest("span").appendChild(infoBox);
+        }
+    });
+    */
+
+    window.addEventListener('error', (event) => {
+        showError('An unknown error occurred');
+    });
+</script>
+{% endblock %}

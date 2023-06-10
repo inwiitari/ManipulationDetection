@@ -1,0 +1,5 @@
+tqdm
+bayoo-docx
+Flask
+tenacity
+openai
