@@ -9,8 +9,10 @@ Files with .docx extension are the documents used while working on the thesis. T
 For hosting a website you need files app.py, base.html.j2, index.html.j2, model.py, requirements.txt and credentials.py. The repository contains all of them except for credentials.py. It was done for safety reasons, and to host a website you need to get a key to OpenAI API (ChatGPT model). If you have the key, here is how you host a website:
 
 1. Pack all the necessary files in one folder
-2. Open the Terminal
-3. Specify the path to the folder by using cd /path/
-4. Input pip install -r requirements.txt
-5. Input python app.py
-6. Terminal will give you a link to the website
+2. Create subfolder 'templates' and put files _.html.j2 in it
+3. Create subfolder 'analyzed_files'
+4. Open the Terminal
+5. Specify the path to the folder by using cd /path/
+6. Input pip install -r requirements.txt
+7. Input python app.py
+8. Terminal will give you a link to the website
